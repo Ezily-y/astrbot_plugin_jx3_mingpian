@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <title>人物图鉴</title>
+    <meta charset="utf-8">
+    <style>
+        {% if cardFont %}
+        @font-face {
+            font-family: "名片字体";
+            src: url("{{ cardFont }}") format("woff2");
+            font-display: block;
+        }
+        {% endif %}
+
+        {% if brushFont %}
+        @font-face {
+            font-family: "名片行楷";
+            src: url("{{ brushFont }}") format("truetype");
+            font-display: block;
+        }
+        {% endif %}
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: max-content;
+            background: #fff;
+            font-family: "名片字体", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .sheet {
+            width: 1000px;
+            background: linear-gradient(178deg, #241d2b 0%, #1b1622 42%, #14111a 100%);
+            color: #efe7dc;
+        }
+
+        /* 顶部主视觉：立绘铺满，底部渐隐进正文 */
+        .hero {
+            position: relative;
+            width: 1000px;
+            height: 750px;
+            overflow: hidden;
+        }
+
+        .hero__img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .hero__fade {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg,
+                    rgba(20, 17, 26, 0.30) 0%,
+                    rgba(20, 17, 26, 0) 34%,
+                    rgba(20, 17, 26, 0.72) 82%,
+                    #1b1622 100%);
+        }
+
+        .hero__title {
+            position: absolute;
+            left: 64px;
+            bottom: 42px;
+        }
+
+        .hero__name {
+            font-family: "名片行楷", "STXingkai", "KaiTi", serif;
+            font-size: 76px;
+            line-height: 1.1;
+            letter-spacing: 8px;
+            text-shadow: 0 4px 26px rgba(0, 0, 0, 0.75);
+        }
+
+        .hero__sub {
+            margin-top: 10px;
+            font-size: 15px;
+            letter-spacing: 7px;
+            color: rgba(239, 231, 220, 0.66);
+        }
+
+        .body {
+            padding: 40px 64px 56px;
+        }
+
+        .quote {
+            padding: 20px 26px;
+            border-left: 3px solid rgba(217, 200, 168, 0.72);
+            background: rgba(255, 255, 255, 0.045);
+            border-radius: 0 8px 8px 0;
+            font-size: 21px;
+            line-height: 1.7;
+            letter-spacing: 2px;
+            color: #f3ece1;
+        }
+
+        .section {
+            margin-top: 38px;
+        }
+
+        .section__title {
+            font-size: 16px;
+            letter-spacing: 6px;
+            color: #d9c8a8;
+        }
+
+        .section__title::after {
+            content: "";
+            display: block;
+            margin-top: 10px;
+            height: 1px;
+            background: linear-gradient(90deg, rgba(217, 200, 168, 0.55), rgba(217, 200, 168, 0));
+        }
+
+        /* 基本信息：两列网格，行距统一 */
+        .info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            column-gap: 56px;
+            margin-top: 22px;
+        }
+
+        .info__row {
+            display: flex;
+            align-items: baseline;
+            gap: 18px;
+            padding: 11px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+        }
+
+        .info__k {
+            flex: none;
+            width: 78px;
+            font-size: 15px;
+            letter-spacing: 3px;
+            color: rgba(217, 200, 168, 0.86);
+        }
+
+        .info__v {
+            font-size: 19px;
+            letter-spacing: 1px;
+            color: #f1eae0;
+        }
+
+        /* 优点与不足：左右两栏 */
+        .cols {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            column-gap: 44px;
+            margin-top: 20px;
+        }
+
+        .col__title {
+            font-size: 17px;
+            letter-spacing: 3px;
+            color: #cfe3c8;
+        }
+
+        .col__title--weak {
+            color: #e3c8c8;
+        }
+
+        .col ul {
+            margin-top: 14px;
+        }
+
+        .col li {
+            list-style: none;
+            font-size: 17px;
+            line-height: 1.5;
+            padding: 7px 0 7px 22px;
+            position: relative;
+            color: rgba(239, 231, 220, 0.9);
+        }
+
+        .col li::before {
+            position: absolute;
+            left: 0;
+            color: rgba(217, 200, 168, 0.85);
+        }
+
+        .col--good li::before {
+            content: "✓";
+        }
+
+        .col--weak li::before {
+            content: "✕";
+        }
+
+        /* 要点总结：编号列表 */
+        .points {
+            margin-top: 20px;
+        }
+
+        .points li {
+            list-style: none;
+            display: flex;
+            gap: 20px;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .points__no {
+            flex: none;
+            font-size: 15px;
+            letter-spacing: 1px;
+            color: rgba(217, 200, 168, 0.8);
+        }
+
+        .points__text {
+            font-size: 18px;
+            line-height: 1.55;
+            color: rgba(239, 231, 220, 0.92);
+        }
+
+        .foot {
+            margin-top: 42px;
+            padding-top: 18px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            letter-spacing: 3px;
+            color: rgba(239, 231, 220, 0.42);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="sheet">
+        <div class="hero">
+            <img class="hero__img" src="{{ portrait }}" alt="">
+            <div class="hero__fade"></div>
+            <div class="hero__title">
+                <div class="hero__name">{{ name | e }}</div>
+                <div class="hero__sub">CHARACTER PROFILE</div>
+            </div>
+        </div>
+
+        <div class="body">
+            {% if quote %}
+            <div class="quote">{{ quote | e }}</div>
+            {% endif %}
+
+            {% if fields %}
+            <div class="section">
+                <div class="section__title">基本信息</div>
+                <div class="info">
+                    {% for row in fields %}
+                    <div class="info__row">
+                        <span class="info__k">{{ row.label | e }}</span>
+                        <span class="info__v">{{ row.value | e }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if pros or cons %}
+            <div class="section">
+                <div class="section__title">优缺点对比</div>
+                <div class="cols">
+                    {% if pros %}
+                    <div class="col col--good">
+                        <div class="col__title">优点</div>
+                        <ul>
+                            {% for item in pros %}<li>{{ item | e }}</li>{% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                    {% if cons %}
+                    <div class="col col--weak">
+                        <div class="col__title col__title--weak">不足</div>
+                        <ul>
+                            {% for item in cons %}<li>{{ item | e }}</li>{% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if points %}
+            <div class="section">
+                <div class="section__title">要点总结</div>
+                <ul class="points">
+                    {% for item in points %}
+                    <li>
+                        <span class="points__no">{{ "%02d" | format(loop.index) }}</span>
+                        <span class="points__text">{{ item | e }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            <div class="foot">
+                <span>人物图鉴 · 设定文案由模型生成</span>
+                <span>{{ name | e }}</span>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

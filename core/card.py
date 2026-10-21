@@ -1,0 +1,241 @@
+"""名片卡构建：使用用户图片，生成底卡与头像，组装模板 payload。
+
+底卡与头像并发生成，各自按配置重试。任一张失败则整体失败。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import tempfile
+from dataclasses import dataclass
+from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from astrbot.api import logger
+
+from .image_api import ImageAPIClient, ImageAPIError
+from .mingpian_data import (
+    AVATAR_PROMPT,
+    BASE_PROMPT,
+    sect_accent,
+    sect_card_fields,
+    sect_scene,
+)
+from .prompts import Prompt
+from .sizes import DEFAULT_CARD_RATIO, RATIO_SIZES, prompt_size
+
+ASSET_ROOT = Path(__file__).resolve().parent.parent / "templates"
+FONT_DIR = ASSET_ROOT / "font"
+IMG_DIR = ASSET_ROOT / "img"
+
+# 名片卡默认出图尺寸。底图实际比例由配置项 mingpian_card_ratio 决定，
+# 这里只是调用方漏传时的兜底默认值
+CARD_SIZE = RATIO_SIZES[DEFAULT_CARD_RATIO]  # 无字底卡，默认 16:9
+AVATAR_SIZE = "1024x1024"  # 正面头像，固定 1:1
+
+
+def _data_uri(path: Path, mime: str) -> str:
+    if not path.exists():
+        return ""
+    return f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+
+
+# 名片形象图的文件头 → 后缀。接口按我们给出的后缀判定 content-type，
+# 一律写 .png 时，若服务实际返回 JPEG 或 WebP，这张参考图会被当成坏图
+_ART_MAGIC: tuple[tuple[bytes, str], ...] = (
+    (b"\x89PNG\r\n\x1a\n", ".png"),
+    (b"\xff\xd8\xff", ".jpg"),
+    (b"GIF87a", ".gif"),
+    (b"GIF89a", ".gif"),
+)
+
+
+def _art_suffix(art: bytes) -> str:
+    """按文件头判断图片格式，认不出返回空串。"""
+    for magic, suffix in _ART_MAGIC:
+        if art.startswith(magic):
+            return suffix
+    if art[:4] == b"RIFF" and art[8:12] == b"WEBP":
+        return ".webp"
+    return ""
+
+
+def _art_path(tmpdir: str, art: bytes) -> Path:
+    """把角色形象图落到临时文件，后缀按真实字节给出。
+
+    认不出图片格式时直接中止：否则会把 HTML 报错页之类的数据当成参考图发出去，
+    接口忽略它之后，出图就变成与角色无关的随机生成。
+    """
+    suffix = _art_suffix(art)
+    if not suffix:
+        raise ImageAPIError("名片形象图不是可识别的图片，已中止本次生成")
+    path = Path(tmpdir) / f"art{suffix}"
+    path.write_bytes(art)
+    logger.info("角色形象图 %s，%d 字节", suffix, len(art))
+    return path
+
+
+@lru_cache(maxsize=1)
+def card_font_uri() -> str:
+    """正文宋体，随模板下发以保证字形一致。"""
+    return _data_uri(FONT_DIR / "名片字体.woff2", "font/woff2")
+
+
+@lru_cache(maxsize=1)
+def brush_font_uri() -> str:
+    """诗句用行楷。"""
+    return _data_uri(FONT_DIR / "STXINGKA.TTF", "font/ttf")
+
+
+@lru_cache(maxsize=1)
+def logo_uri() -> str:
+    return _data_uri(IMG_DIR / "剑网3标识.png", "image/png")
+
+
+@lru_cache(maxsize=1)
+def ref_card_path() -> str:
+    """卡面样式参考图，生成底卡时作为 Image 1 传入。"""
+    path = IMG_DIR / "mingpian" / "卡面参考.png"
+    return str(path) if path.exists() else ""
+
+
+def build_payload(
+    *,
+    base_bytes: bytes,
+    avatar_bytes: bytes,
+    school: str,
+    nickname: str,
+    server: str,
+) -> dict[str, Any]:
+    """组装模板变量。字段名与 templates/standalone/mingpian.html 一致。"""
+    payload: dict[str, Any] = {
+        "cardFont": card_font_uri(),
+        "brushFont": brush_font_uri(),
+        "logo": logo_uri(),
+        # 底卡作为背景，文字、徽记与条码由模板叠加
+        "bgImage": "data:image/png;base64,"
+        + base64.b64encode(base_bytes).decode("ascii"),
+        "avatar": "data:image/png;base64,"
+        + base64.b64encode(avatar_bytes).decode("ascii"),
+        "nickname": nickname,
+        "server": server,
+        "cardDate": datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y/%m/%d"),
+        "panelShift": 0,
+        "school": school,
+    }
+    if school:
+        payload.update(sect_card_fields(school))
+    return payload
+
+
+@dataclass(frozen=True)
+class CardSource:
+    """用户提供的参考图与展示信息，不查询游戏数据。"""
+
+    art: bytes
+    nickname: str = ""
+    school: str = ""
+    server: str = ""
+
+    @property
+    def accent(self) -> str:
+        return sect_accent(self.school)[0]
+
+    @property
+    def scene(self) -> str:
+        return sect_scene(self.school)
+
+
+async def generate_base(
+    image: ImageAPIClient,
+    source: CardSource,
+    prompt: str,
+    *,
+    size: str = CARD_SIZE,
+    with_card_ref: bool = True,
+) -> bytes:
+    """按提示词生成图片。
+
+    with_card_ref 为真时，参考图顺序为「卡面样式参考、角色形象图」；
+    为假时只传角色形象图。
+    """
+    with tempfile.TemporaryDirectory(prefix="jx3_mingpian_") as tmpdir:
+        art_path = _art_path(tmpdir, source.art)
+        ref = ref_card_path() if with_card_ref else ""
+        refs = [Path(ref), art_path] if ref else [art_path]
+        return await image.edit(prompt, refs, size=size, quality="high")
+
+
+async def generate_avatar(image: ImageAPIClient, source: CardSource) -> bytes:
+    """生成正面头像。"""
+    with tempfile.TemporaryDirectory(prefix="jx3_mingpian_") as tmpdir:
+        art_path = _art_path(tmpdir, source.art)
+        return await image.edit(
+            AVATAR_PROMPT, [art_path], size=AVATAR_SIZE, quality="high"
+        )
+
+
+async def build_card(
+    image: ImageAPIClient,
+    source: CardSource,
+    *,
+    size: str = CARD_SIZE,
+) -> dict[str, Any]:
+    """名片卡：使用参考图生成底卡与头像，组装模板 payload。
+
+    size 为底图尺寸，由调用方按配置的名片卡比例给出。
+    失败时抛出 ImageAPIError，message 可直接返回给用户。
+    """
+    if not image.configured:
+        raise ImageAPIError("还没配置生图接口，请填写「生图接口地址 / 密钥 / 模型名」")
+
+    prompt = BASE_PROMPT.format(
+        school=source.school or "剑网3", scene=source.scene, accent=source.accent
+    )
+
+    # 底卡与头像并发生成
+    base_result, avatar_result = await asyncio.gather(
+        generate_base(image, source, prompt, size=size),
+        generate_avatar(image, source),
+        return_exceptions=True,
+    )
+    for result in (base_result, avatar_result):
+        if isinstance(result, BaseException):
+            raise (
+                result
+                if isinstance(result, ImageAPIError)
+                else ImageAPIError(str(result))
+            )
+    if not isinstance(base_result, bytes) or not isinstance(avatar_result, bytes):
+        raise ImageAPIError("生图接口没有返回图片")
+
+    payload = build_payload(
+        base_bytes=base_result,
+        avatar_bytes=avatar_result,
+        school=source.school,
+        nickname=source.nickname,
+        server=source.server,
+    )
+    return payload
+
+
+async def build_closeup(
+    image: ImageAPIClient,
+    source: CardSource,
+    prompt: Prompt,
+) -> bytes:
+    """名片特写：按配置的提示词生成图片，不做文字叠加。
+
+    只传角色形象图，不传卡面样式参考：提示词描述的是纯海报，
+    卡面版式（面板、齿孔、条码）不属于其中，作为参考图传入会干扰构图。
+    出图尺寸取该提示词自己配置的比例；未指定时交给接口决定。
+    """
+    if not image.configured:
+        raise ImageAPIError("还没配置生图接口，请填写「生图接口地址 / 密钥 / 模型名」")
+    return await generate_base(
+        image, source, prompt.text, size=prompt_size(prompt.ratio), with_card_ref=False
+    )

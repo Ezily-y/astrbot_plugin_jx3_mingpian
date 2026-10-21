@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>生图设置</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">剑网3 · 图片创作</p>
+        <h1>生图设置</h1>
+        <p class="muted">管理接口方案、模型和测试。保存后立即用于后续生成。</p>
+        <p id="backend-note" class="muted backend-note"></p>
+      </div>
+      <div class="header-actions">
+        <button id="add" class="button secondary" type="button">添加方案</button>
+        <button id="save" class="button primary" type="button">保存设置</button>
+      </div>
+    </header>
+
+    <div id="result" class="banner" role="status" aria-live="polite" hidden></div>
+
+    <datalist id="saved-urls"></datalist>
+    <p id="empty" class="empty muted" hidden>还没有接口方案，点击「添加方案」开始。</p>
+    <section id="profiles" class="profiles" aria-label="接口方案列表"></section>
+
+    <section class="global-row">
+      <label class="switch-row">
+        <input id="auto-fallback" type="checkbox">
+        <span>自动降级</span>
+        <small class="muted">当前方案失败时，按列表顺序尝试下一个方案。</small>
+      </label>
+      <p class="hint muted">「当前使用」是主方案；上移 / 下移决定失败后的备选顺序。</p>
+    </section>
+
+    <figure id="preview" class="preview" hidden>
+      <img id="test-preview" alt="实际生图测试结果">
+      <figcaption id="preview-caption" class="muted"></figcaption>
+    </figure>
+
+    <footer class="footer">
+      <span class="muted">密钥不会回传页面；留空表示保留已配置的密钥。</span>
+      <div class="footer-actions">
+        <button id="add-bottom" class="button secondary" type="button">添加方案</button>
+        <button id="save-bottom" class="button primary" type="button">保存设置</button>
+      </div>
+    </footer>
+  </main>
+
+  <template id="profile-template">
+    <article class="profile card">
+      <header class="profile-header">
+        <input class="name" type="text" placeholder="方案名称" autocomplete="off" aria-label="方案名称">
+        <label class="active-row">
+          <input class="active" type="radio" name="active-profile">
+          <span>当前使用</span>
+        </label>
+        <div class="move-actions">
+          <button type="button" data-action="up" class="button small" title="上移">↑ 上移</button>
+          <button type="button" data-action="down" class="button small" title="下移">↓ 下移</button>
+          <button type="button" data-action="delete" class="button small danger" title="删除">删除</button>
+        </div>
+      </header>
+
+      <div class="profile-grid">
+        <div class="field span-2">
+          <label>接口地址</label>
+          <input class="base-url" type="url" list="saved-urls" placeholder="https://example.com/v1" autocomplete="off">
+        </div>
+        <div class="field">
+          <label>密钥</label>
+          <textarea class="keys" rows="2" placeholder="留空保留现有密钥" spellcheck="false"></textarea>
+          <small class="key-hint muted"></small>
+        </div>
+        <div class="field">
+          <label>模型</label>
+          <div class="model-row">
+            <select class="model"></select>
+            <button type="button" data-action="models" class="button small">刷新模型</button>
+          </div>
+          <input class="model-custom" type="text" placeholder="手动填写模型 ID" autocomplete="off" hidden>
+          <small class="model-hint muted"></small>
+        </div>
+      </div>
+
+      <footer class="profile-actions">
+        <span class="profile-status" aria-live="polite"></span>
+        <div class="test-actions">
+          <button type="button" data-action="connect" class="button small">连通性测试</button>
+          <button type="button" data-action="test" class="button small">实际生图测试（消耗额度）</button>
+        </div>
+      </footer>
+    </article>
+  </template>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

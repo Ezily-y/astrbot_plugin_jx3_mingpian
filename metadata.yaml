@@ -1,0 +1,13 @@
+name: astrbot_plugin_jx3_mingpian
+display_name: 剑网3 图片创作
+desc: 发送或引用图片，通过 /生图 创作剑网3名片卡、特写与人物图鉴，支持按名称或编号切换提示词。
+version: 2.3.0
+views:
+  - image-settings
+author: Ezily-y
+repo: https://github.com/Ezily-y/astrbot_plugin_jx3_mingpian
+# 基于 沐倾 (https://github.com/muqing-kg/astrbot_plugin_jx3_mingpian) 修改
+astrbot_version: ">=4.11.0"
+support_platforms:
+  - aiocqhttp
+  - weixin_oc
